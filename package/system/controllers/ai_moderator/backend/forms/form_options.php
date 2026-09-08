@@ -274,6 +274,18 @@ class formAiModeratorOptions extends cmsForm {
                         'default' => 'llama3.1',
                     ]),
 
+                    new fieldCheckbox('preload_model', [
+                        'title'   => LANG_AIM_PRELOAD_MODEL,
+                        'hint'    => LANG_AIM_PRELOAD_MODEL_HINT,
+                        'default' => 1,
+                    ]),
+
+                    new fieldString('ollama_keep_alive', [
+                        'title'   => LANG_AIM_OLLAMA_KEEP_ALIVE,
+                        'hint'    => LANG_AIM_OLLAMA_KEEP_ALIVE_HINT,
+                        'default' => '30m',
+                    ]),
+
                     new fieldString('yandex_api_key', [
                         'title'   => LANG_AIM_YANDEX_KEY,
                         'hint'    => LANG_AIM_YANDEX_KEY_HINT,

@@ -78,6 +78,10 @@
     define('LANG_AIM_OPENAI_MODEL',       'OpenAI: модель');
     define('LANG_AIM_TIMEOUT',            'Таймаут запроса (сек)');
     define('LANG_AIM_TIMEOUT_HINT',       'Максимальное время ожидания ответа LLM');
+    define('LANG_AIM_PRELOAD_MODEL',      'Ollama: прогревать модель перед проверкой');
+    define('LANG_AIM_PRELOAD_MODEL_HINT', 'Перед проверкой отправляется короткий запрос-«будильник», чтобы модель была загружена и холодный старт после простоя не приводил к таймауту');
+    define('LANG_AIM_OLLAMA_KEEP_ALIVE',  'Ollama: keep_alive');
+    define('LANG_AIM_OLLAMA_KEEP_ALIVE_HINT', 'Как долго держать модель в памяти после запроса (чтобы не выгружалась при простое). Примеры: 30m, 1h, 10m; -1 — всегда');
 
     define('LANG_AIM_CHECK_CONNECTION',   'Проверить соединение');
     define('LANG_AIM_CHECK_PENDING',      'Проверка…');

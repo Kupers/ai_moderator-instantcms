@@ -35,9 +35,11 @@ class LLMTransport {
 
     public function __construct(array $options = []) {
         $this->options = array_merge([
-            'backend'         => 'ollama',
-            'ollama_host'     => 'http://127.0.0.1:11434',
-            'ollama_model'    => 'llama3.1',
+            'backend'          => 'ollama',
+            'ollama_host'      => 'http://127.0.0.1:11434',
+            'ollama_model'     => 'llama3.1',
+            'ollama_keep_alive'=> '30m',
+            'preload_model'    => 1,
             'yandex_api_key'  => '',
             'yandex_folder_id'=> '',
             'yandex_model'    => 'yandexgpt/latest',
@@ -93,19 +95,31 @@ class LLMTransport {
 
     /**
      * Драйвер Ollama (/api/chat, формат OpenAI-совместимый, stream:false, format:'json')
+     *
+     * Перед проверкой модель прогревается коротким запросом (см. warmUpOllama),
+     * чтобы выгрузка модели после простоя не приводила к таймауту на генерации.
      */
     protected function moderateOllama(string $system, string $text) {
 
         $host = rtrim($this->options['ollama_host'], '/');
 
+        if (!empty($this->options['preload_model'])) {
+            try {
+                $this->warmUpOllama();
+            } catch (\Throwable $e) {
+                // прогрев не обязателен — дадим шанс основному запросу
+            }
+        }
+
         $payload = [
-            'model'    => $this->options['ollama_model'],
-            'messages' => [
+            'model'      => $this->options['ollama_model'],
+            'messages'   => [
                 ['role' => 'system', 'content' => $system],
                 ['role' => 'user',   'content' => $text],
             ],
-            'stream' => false,
-            'format' => 'json',
+            'stream'     => false,
+            'format'     => 'json',
+            'keep_alive' => (string)$this->options['ollama_keep_alive'],
         ];
 
         $body = $this->httpPost($host . '/api/chat', $payload);
@@ -114,6 +128,31 @@ class LLMTransport {
         if (!is_string($content)) { $content = json_encode($content); }
 
         return $this->normalize($content, $body);
+    }
+
+    /**
+     * «Будит» модель Ollama: отправляет минимальный запрос, который
+     * заставляет Ollama загрузить модель в память. Таймаут прогрева увеличен,
+     * чтобы холодный старт модели не приводил к ошибке.
+     */
+    protected function warmUpOllama(): void {
+
+        $host = rtrim($this->options['ollama_host'], '/');
+
+        $timeout       = (int)$this->options['timeout'];
+        $warmup_timeout = max($timeout * 2, $timeout + 180);
+
+        $payload = [
+            'model'      => $this->options['ollama_model'],
+            'messages'   => [
+                ['role' => 'user', 'content' => 'ping'],
+            ],
+            'stream'     => false,
+            'keep_alive' => (string)$this->options['ollama_keep_alive'],
+            'options'    => ['num_predict' => 1],
+        ];
+
+        $this->httpPost($host . '/api/chat', $payload, [], $warmup_timeout);
     }
 
     /**
@@ -256,10 +295,24 @@ class LLMTransport {
                 $host = rtrim($this->options['ollama_host'], '/');
                 $body = $this->httpGet($host . '/api/version');
 
+                $message = 'OK';
+                if (!empty($this->options['preload_model'])) {
+                    try {
+                        $this->warmUpOllama();
+                        $message = 'OK, модель загружена';
+                    } catch (\Throwable $e) {
+                        return [
+                            'ok'      => false,
+                            'version' => (string)($body['version'] ?? ''),
+                            'message' => $e->getMessage(),
+                        ];
+                    }
+                }
+
                 return [
                     'ok'      => true,
                     'version' => (string)($body['version'] ?? ''),
-                    'message' => 'OK',
+                    'message' => $message,
                 ];
             }
 
@@ -364,19 +417,21 @@ class LLMTransport {
      *
      * @throws RuntimeException
      */
-    protected function httpGet(string $url, array $headers = []) {
+    protected function httpGet(string $url, array $headers = [], ?int $timeout = null) {
 
         if (!function_exists('curl_init')) {
             throw new RuntimeException('libcurl не установлен на сервере');
         }
+
+        $timeout = $timeout ?? (int)$this->options['timeout'];
 
         $headers = array_merge(['Content-Type: application/json'], $headers);
 
         $ch = curl_init($url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, (int)$this->options['timeout']);
-        curl_setopt($ch, CURLOPT_TIMEOUT, (int)$this->options['timeout']);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, $timeout);
+        curl_setopt($ch, CURLOPT_TIMEOUT, $timeout);
         curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
         curl_setopt($ch, CURLOPT_USERAGENT, 'InstantCMS ai_moderator/1.0');
 
@@ -407,11 +462,13 @@ class LLMTransport {
      *
      * @throws RuntimeException
      */
-    protected function httpPost(string $url, array $payload, array $headers = []) {
+    protected function httpPost(string $url, array $payload, array $headers = [], ?int $timeout = null) {
 
         if (!function_exists('curl_init')) {
             throw new RuntimeException('libcurl не доступен на сервере');
         }
+
+        $timeout = $timeout ?? (int)$this->options['timeout'];
 
         $headers = array_merge(['Content-Type: application/json'], $headers);
 
@@ -420,8 +477,8 @@ class LLMTransport {
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload, JSON_UNESCAPED_UNICODE));
         curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, (int)$this->options['timeout']);
-        curl_setopt($ch, CURLOPT_TIMEOUT, (int)$this->options['timeout']);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, $timeout);
+        curl_setopt($ch, CURLOPT_TIMEOUT, $timeout);
         curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
         curl_setopt($ch, CURLOPT_USERAGENT, 'InstantCMS ai_moderator/1.0');
 

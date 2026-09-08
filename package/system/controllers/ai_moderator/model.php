@@ -5,10 +5,10 @@ class modelAiModerator extends cmsModel {
     public $table = 'ai_moderator_logs';
 
     /**
-     * РўРѕС‡РєР° РІС…РѕРґР°: РїСЂРѕРІРµСЂРєР° С‚РµРєСЃС‚Р° РїРѕ РІСЃРµРј РїСЂР°РІРёР»Р°Рј.
+     * Точка входа: проверка текста по всем правилам.
      *
-     * @param string $text  РџСЂРѕРІРµСЂСЏРµРјС‹Р№ С‚РµРєСЃС‚
-     * @param array  $ctx   РљРѕРЅС‚РµРєСЃС‚: С‚РёРї ('comment'|'content'), id, Р°РІС‚РѕСЂ Рё С‚.Рї.
+     * @param string $text  Проверяемый текст
+     * @param array  $ctx   Контекст: тип ('comment'|'content'), id, автор и т.п.
      * @return array {
      *   'is_spam'    bool,
      *   'action'     'none'|'log'|'moderate'|'hide'|'delete',
@@ -20,12 +20,12 @@ class modelAiModerator extends cmsModel {
      */
     public function checkText(string $text, array $ctx = []) {
 
-        // РџРѕРґРєР»СЋС‡Р°РµРј СѓРЅРёРІРµСЂСЃР°Р»СЊРЅС‹Р№ С‚СЂР°РЅСЃРїРѕСЂС‚ (РІРЅРµ СЃС‚Р°РЅРґР°СЂС‚РЅРѕР№ Р°РІС‚РѕР·Р°РіСЂСѓР·РєРё)
+        // Подключаем универсальный транспорт (вне стандартной автозагрузки)
         require_once __DIR__ . '/lib/LLMTransport.php';
 
         $options = cmsController::loadOptions('ai_moderator');
 
-        // Р’С‹РєР»СЋС‡РµРЅРѕ вЂ” РЅРёС‡РµРіРѕ РЅРµ РґРµР»Р°РµРј
+        // Выключено — ничего не делаем
         if (empty($options['enabled'])) {
             return $this->result('disabled', 'none', false, 0, 'normal', '');
         }
@@ -36,7 +36,7 @@ class modelAiModerator extends cmsModel {
             return $this->result('prefilter', 'none', false, 0, 'normal', 'too_short');
         }
 
-        // РџСЂРѕРїСѓСЃРє Р°РґРјРёРЅРѕРІ/РјРѕРґРµСЂР°С‚РѕСЂРѕРІ (РѕРїС†РёСЏ)
+        // Пропуск админов/модераторов (опция)
         $skip_role = !empty($options['skip_moderators']);
         $user_id   = (int)($ctx['user_id'] ?? 0);
         if ($skip_role && $user_id) {
@@ -46,25 +46,25 @@ class modelAiModerator extends cmsModel {
             }
         }
 
-        // Р‘С‹СЃС‚СЂС‹Р№ pre-С„РёР»СЊС‚СЂ РїРѕ РїСЂР°РІРёР»Р°Рј
+        // Быстрый pre-фильтр по правилам
         $pre = $this->prefilterRules($text, $options);
         if ($pre !== null) {
             if (!$this->isCategoryEnabled($pre['category'], $options)) {
                 return $this->result('prefilter', 'none', false, $pre['score'], $pre['category'], $pre['reason'] . ' (disabled)');
             }
-            $action = $pre['action']; // 'block' -> РѕС‚РѕР±СЂР°Р¶Р°РµС‚СЃСЏ РІ delete
+            $action = $pre['action']; // 'block' -> отображается в delete
             if ($action === 'block') { $action = 'delete'; }
             $cat_action = $this->getCategoryAction($ctx, $pre['category'], $options);
             if ($cat_action !== null) { $action = $cat_action; }
             return $this->result('prefilter', $action, $pre['spam'], $pre['score'], $pre['category'], $pre['reason']);
         }
 
-        // РћСЃРЅРѕРІРЅРѕР№ LLM-РІС‹Р·РѕРІ
+        // Основной LLM-вызов
         try {
             $transport = new LLMTransport($options);
             $llm = $transport->moderate($text);
         } catch (\Throwable $e) {
-            // РћС€РёР±РєР° LLM вЂ” Р±РµР·РѕРїР°СЃРЅРѕ РЅРµ Р±Р»РѕРєРёСЂСѓРµРј, РЅРѕ Р»РѕРіРёСЂСѓРµРј
+            // Ошибка LLM — безопасно не блокируем, но логируем
             $this->log($ctx, 'error', $e->getMessage(), compact('text'));
             return $this->result('error', 'none', false, 0, 'normal', $e->getMessage());
         }
@@ -77,14 +77,14 @@ class modelAiModerator extends cmsModel {
             return $this->result('llm', 'none', false, $llm['score'], $llm['category'], $llm['reason']);
         }
 
-        // РљР°С‚РµРіРѕСЂРёСЏ РѕС‚РєР»СЋС‡РµРЅР° вЂ” РїСЂРѕРїСѓСЃРєР°РµРј
+        // Категория отключена — пропускаем
         if (!$this->isCategoryEnabled($llm['category'], $options)) {
             return $this->result('llm', 'none', false, $llm['score'], $llm['category'], $llm['reason'] . ' (disabled)');
         }
 
         $mode = $this->getActionFor($ctx, $options, $llm['category']);
 
-        // РќР°Р№РґРµРЅ СЃРїР°Рј в†’ РґРµР№СЃС‚РІРёРµ РїРѕ РЅР°СЃС‚СЂРѕР№РєР°Рј
+        // Найден спам → действие по настройкам
         $action = $mode['spam'] ?? 'log';
 
         if (empty($ctx['recheck'])) {
@@ -108,7 +108,7 @@ class modelAiModerator extends cmsModel {
     }
 
     /**
-     * Р’РѕР·РІСЂР°С‰Р°РµС‚ РґРµР№СЃС‚РІРёРµ РґР»СЏ СЃРїР°РјР° РёСЃС…РѕРґСЏ РёР· С‚РёРїР° РєРѕРЅС‚РµРЅС‚Р° Рё РєР°С‚РµРіРѕСЂРёРё.
+     * Возвращает действие для спама исходя из типа контента и категории.
      *
      * @return array {'spam': string}
      */
@@ -135,7 +135,7 @@ class modelAiModerator extends cmsModel {
     }
 
     /**
-     * РџСЂРѕРІРµСЂСЏРµС‚, РІРєР»СЋС‡РµРЅР° Р»Рё РєР°С‚РµРіРѕСЂРёСЏ РЅР°СЂСѓС€РµРЅРёР№ РІ РЅР°СЃС‚СЂРѕР№РєР°С….
+     * Проверяет, включена ли категория нарушений в настройках.
      */
     protected function isCategoryEnabled(string $category, array $options): bool {
         $key = "cat_enabled_{$category}";
@@ -143,7 +143,7 @@ class modelAiModerator extends cmsModel {
     }
 
     /**
-     * Р’РѕР·РІСЂР°С‰Р°РµС‚ РґРµР№СЃС‚РІРёРµ РґР»СЏ РєРѕРЅРєСЂРµС‚РЅРѕР№ РєР°С‚РµРіРѕСЂРёРё РёР»Рё null, РµСЃР»Рё РёСЃРїРѕР»СЊР·СѓРµС‚СЃСЏ РіР»РѕР±Р°Р»СЊРЅРѕРµ.
+     * Возвращает действие для конкретной категории или null, если используется глобальное.
      */
     protected function getCategoryAction(array $ctx, string $category, array $options): ?string {
 
@@ -159,7 +159,7 @@ class modelAiModerator extends cmsModel {
     }
 
     /**
-     * Р’РѕР·РІСЂР°С‰Р°РµС‚ СЃР°РЅРєС†РёРё РґР»СЏ РєР°С‚РµРіРѕСЂРёРё (РїРµСЂРµРѕРїСЂРµРґРµР»СЏСЋС‚ РіР»РѕР±Р°Р»СЊРЅС‹Рµ).
+     * Возвращает санкции для категории (переопределяют глобальные).
      */
     protected function getCategorySanctions(string $category, array $options): array {
 
@@ -187,13 +187,13 @@ class modelAiModerator extends cmsModel {
     }
 
     /**
-     * РџСЂРёРјРµРЅСЏРµС‚ СЃР°РЅРєС†РёРё Рє Р°РІС‚РѕСЂСѓ Р·Р° РІС‹СЏРІР»РµРЅРЅРѕРµ РЅР°СЂСѓС€РµРЅРёРµ.
+     * Применяет санкции к автору за выявленное нарушение.
      */
     public function applySanctions(array $ctx, array $llm, array $options = []) {
 
         if (empty($options['sanctions_enabled'])) { return; }
 
-        // РћРіСЂР°РЅРёС‡РµРЅРёРµ РѕР±Р»Р°СЃС‚Рё РїСЂРёРјРµРЅРµРЅРёСЏ СЃР°РЅРєС†РёР№ (РєРѕРјРјРµРЅС‚Р°СЂРёРё / РєРѕРЅС‚РµРЅС‚ / РѕР±Р°)
+        // Ограничение области применения санкций (комментарии / контент / оба)
         $scope = (string)($options['sanction_scope'] ?? 'both');
         $scope = $scope ?: 'both';
         $subject = (string)($ctx['subject'] ?? '');
@@ -218,14 +218,14 @@ class modelAiModerator extends cmsModel {
 
         try {
 
-            // РџРѕРЅРёР¶РµРЅРёРµ РєР°СЂРјС‹
+            // Понижение кармы
             if (!empty($sanctions['karma'])) {
                 $points = (int)($sanctions['karma_points'] ?? -5);
                 $users->filterEqual('id', $user_id);
                 $users->increment('{users}', 'karma', $points);
             }
 
-            // Р‘Р»РѕРєРёСЂРѕРІРєР° (РІСЂРµРјРµРЅРЅР°СЏ РёР»Рё РЅР°РІСЃРµРіРґР°)
+            // Блокировка (временная или навсегда)
             if (!empty($sanctions['ban'])) {
                 $days = (int)($sanctions['ban_days'] ?? 1);
                 $until = $days > 0
@@ -234,11 +234,11 @@ class modelAiModerator extends cmsModel {
                 $users->updateUser($user_id, [
                     'is_locked'   => 1,
                     'lock_until'  => $until,
-                    'lock_reason' => 'AI-РјРѕРґРµСЂР°С‚РѕСЂ: ' . mb_substr($llm['reason'] ?? '', 0, 150),
+                    'lock_reason' => 'AI-модератор: ' . mb_substr($llm['reason'] ?? '', 0, 150),
                 ]);
             }
 
-            // РџСЂРµРґСѓРїСЂРµР¶РґРµРЅРёРµ (Р›РЎ)
+            // Предупреждение (ЛС)
             if (!empty($sanctions['warning'])) {
                 $this->sendWarning($user_id, $ctx, $llm);
             }
@@ -247,7 +247,7 @@ class modelAiModerator extends cmsModel {
     }
 
     /**
-     * РћС‚РїСЂР°РІР»СЏРµС‚ Р°РІС‚РѕСЂСѓ Р›РЎ-РїСЂРµРґСѓРїСЂРµР¶РґРµРЅРёРµ (РѕС‚ СЃРёСЃС‚РµРјРЅРѕРіРѕ Р±РѕС‚Р°).
+     * Отправляет автору ЛС-предупреждение (от системного бота).
      */
     protected function sendWarning(int $user_id, array $ctx, array $llm) {
 
@@ -279,7 +279,7 @@ class modelAiModerator extends cmsModel {
     }
 
     /**
-     * РўРµРєСЃС‚ Р·Р°РіР»СѓС€РєРё РґР»СЏ СЃРєСЂС‹С‚РѕРіРѕ РєРѕРјРјРµРЅС‚Р°СЂРёСЏ.
+     * Текст заглушки для скрытого комментария.
      */
     public function getHideCommentText(): string {
         $options = cmsController::loadOptions('ai_moderator');
@@ -287,8 +287,8 @@ class modelAiModerator extends cmsModel {
     }
 
     /**
-     * Р“Р°СЂР°РЅС‚РёСЂСѓРµС‚ РЅР°Р»РёС‡РёРµ РєРѕР»РѕРЅРєРё is_hidden РІ С‚Р°Р±Р»РёС†Рµ РєРѕРјРјРµРЅС‚Р°СЂРёРµРІ.
-     * РђРІС‚РѕРјР°С‚РёС‡РµСЃРєР°СЏ РјРёРіСЂР°С†РёСЏ РїСЂРё РїРµСЂРІРѕРј РёСЃРїРѕР»СЊР·РѕРІР°РЅРёРё (РёРґРµРјРїРѕС‚РµРЅС‚РЅР°).
+     * Гарантирует наличие колонки is_hidden в таблице комментариев.
+     * Автоматическая миграция при первом использовании (идемпотентна).
      *
      * @return bool
      */
@@ -314,11 +314,11 @@ class modelAiModerator extends cmsModel {
     }
 
     /**
-     * Р‘С‹СЃС‚СЂС‹Рµ РїСЂР°РІРёР»Р° РґРѕ LLM. Р’РµСЂРЅС‘С‚ null РµСЃР»Рё РЅРµРѕРїСЂРµРґРµР»С‘РЅРЅРѕ.
+     * Быстрые правила до LLM. Вернёт null если неопределённо.
      */
     protected function prefilterRules(string $text, array $options): ?array {
 
-        // Р§С‘СЂРЅС‹Р№ СЃРїРёСЃРѕРє СЃР»РѕРІ: Р¶С‘СЃС‚РєРёР№ Р±Р»РѕРє
+        // Чёрный список слов: жёсткий блок
         $blacklist = $this->parseList($options['blacklist'] ?? '');
         if ($blacklist) {
             $found = $this->textHasAny($text, $blacklist);
@@ -333,7 +333,7 @@ class modelAiModerator extends cmsModel {
             }
         }
 
-        // РЎСЃС‹Р»РєРё (РїСЂРѕРІРµСЂРєР° РїРѕ РѕРїС†РёРё)
+        // Ссылки (проверка по опции)
         if (!empty($options['flag_urls'])) {
             if (preg_match('#https?://#i', $text) || preg_match('#www\.#i', $text)) {
                 return [
@@ -366,7 +366,7 @@ class modelAiModerator extends cmsModel {
     }
 
     /**
-     * Р¤РѕСЂРјРёСЂСѓРµС‚ РЅРѕСЂРјР°Р»РёР·РѕРІР°РЅРЅС‹Р№ СЂРµР·СѓР»СЊС‚Р°С‚.
+     * Формирует нормализованный результат.
      */
     protected function result(string $source, string $action, bool $is_spam, float $score, string $category, string $reason): array {
         return [
@@ -380,16 +380,16 @@ class modelAiModerator extends cmsModel {
     }
 
     /**
-     * РўРѕРєРµРЅ Р°РІС‚РѕСЂР° РґР»СЏ РіСЂСѓРїРїРёСЂРѕРІРєРё РЅР°СЂСѓС€РёС‚РµР»РµР№.
-     *  - Р°РІС‚РѕСЂРёР·РѕРІР°РЅРЅС‹Р№ РїРѕР»СЊР·РѕРІР°С‚РµР»СЊ -> "user:ID"
-     *  - РіРѕСЃС‚СЊ -> "guest:IP"
+     * Токен автора для группировки нарушителей.
+     *  - авторизованный пользователь -> "user:ID"
+     *  - гость -> "guest:IP"
      */
     protected function getAuthorToken(array $ctx): string {
         $user_id = (int)($ctx['user_id'] ?? 0);
         if ($user_id) {
             return 'user:' . $user_id;
         }
-        // Р’ С„РѕРЅРѕРІРѕРј РІРѕСЂРєРµСЂРµ РЅРµС‚ СЃРµСЃСЃРёРё, РїРѕСЌС‚РѕРјСѓ IP Р±РµСЂС‘Рј РёР· РєРѕРЅС‚РµРєСЃС‚Р°
+        // В фоновом воркере нет сессии, поэтому IP берём из контекста
         $ip = trim((string)($ctx['ip'] ?? ''));
         if (!$ip) {
             $ip = cmsUser::getIp() ?: '0.0.0.0';
@@ -398,7 +398,7 @@ class modelAiModerator extends cmsModel {
     }
 
     /**
-     * Р›РѕРіРёСЂРѕРІР°РЅРёРµ РїСЂРѕРІРµСЂРєРё РІ С‚Р°Р±Р»РёС†Сѓ ai_moderator_logs.
+     * Логирование проверки в таблицу ai_moderator_logs.
      */
     public function log(array $ctx, string $action, string $reason, array $data = []) {
 
@@ -424,7 +424,7 @@ class modelAiModerator extends cmsModel {
     }
 
     /**
-     * РЈРІРµРґРѕРјР»РµРЅРёРµ Р°РґРјРёРЅР° (Р›РЎ) вЂ” РµСЃР»Рё РІРєР»СЋС‡РµРЅРѕ РІ РѕРїС†РёСЏС….
+     * Уведомление админа (ЛС) — если включено в опциях.
      */
     public function notifyAdmin(array $ctx, string $action, string $reason, string $text) {
 
@@ -436,7 +436,7 @@ class modelAiModerator extends cmsModel {
             $rows = $this->db->getRows('users', 'is_admin = 1', 'id');
             if (!$rows) { return; }
 
-            // РћС‚РїСЂР°РІР»СЏРµРј С‚РѕР»СЊРєРѕ РѕРґРЅРѕРјСѓ РіР»Р°РІРЅРѕРјСѓ Р°РґРјРёРЅСѓ Рё РѕС‚ РµРіРѕ РёРјРµРЅРё (СЃРёСЃС‚РµРјРЅС‹Р№ Р±РѕС‚)
+            // Отправляем только одному главному админу и от его имени (системный бот)
             $admin_ids = [];
             foreach ($rows as $row) {
                 $admin_ids[] = (int)$row['id'];
@@ -444,21 +444,21 @@ class modelAiModerator extends cmsModel {
             sort($admin_ids);
 
             $sender    = (int)$admin_ids[0];
-            // РЈРІРµРґРѕРјР»СЏРµРј РІСЃРµС… Р°РґРјРёРЅРёСЃС‚СЂР°С‚РѕСЂРѕРІ (РІРєР»СЋС‡Р°СЏ РѕС‚РїСЂР°РІРёС‚РµР»СЏ,
-            // РёРЅР°С‡Рµ РїСЂРё РѕРґРЅРѕРј Р°РґРјРёРЅРµ РѕРЅ РЅРёРєРѕРіРґР° РЅРµ РїРѕР»СѓС‡РёС‚ РѕРїРѕРІРµС‰РµРЅРёРµ)
+            // Уведомляем всех администраторов (включая отправителя,
+            // иначе при одном админе он никогда не получит оповещение)
             $recipients = $admin_ids;
 
             if ($action === 'delete') {
-                $subject = 'AI-РјРѕРґРµСЂР°С‚РѕСЂ: СѓРґР°Р»С‘РЅ СЃРїР°Рј';
+                $subject = 'AI-модератор: удалён спам';
             } elseif ($action === 'hide') {
-                $subject = 'AI-РјРѕРґРµСЂР°С‚РѕСЂ: СЃРєСЂС‹С‚ РєРѕРјРјРµРЅС‚Р°СЂРёР№';
+                $subject = 'AI-модератор: скрыт комментарий';
             } else {
-                $subject = 'AI-РјРѕРґРµСЂР°С‚РѕСЂ: РєРѕРЅС‚РµРЅС‚ РѕС‚РїСЂР°РІР»РµРЅ РЅР° РїСЂРѕРІРµСЂРєСѓ';
+                $subject = 'AI-модератор: контент отправлен на проверку';
             }
 
-            $message = 'РўРёРї: ' . ($ctx['subject'] ?? '') . ' #' . ($ctx['subject_id'] ?? 0) . "\n"
-                     . 'РџСЂРёС‡РёРЅР°: ' . $reason . "\n\n"
-                     . 'РўРµРєСЃС‚: ' . mb_substr($text, 0, 500);
+            $message = 'Тип: ' . ($ctx['subject'] ?? '') . ' #' . ($ctx['subject_id'] ?? 0) . "\n"
+                     . 'Причина: ' . $reason . "\n\n"
+                     . 'Текст: ' . mb_substr($text, 0, 500);
 
             cmsCore::getModel('messages')->addMessage($sender, $recipients, $message);
 
@@ -466,8 +466,8 @@ class modelAiModerator extends cmsModel {
     }
 
     /**
-     * РџСЂРёРјРµРЅРµРЅРёРµ СЂРµС€РµРЅРёСЏ Рє РґР°РЅРЅС‹Рј РєРѕРјРјРµРЅС‚Р°СЂРёСЏ (РґР»СЏ С…СѓРє comment_add_permissions / comment_before_add).
-     * Р’РѕР·РІСЂР°С‰Р°РµС‚ [РєРѕРјРјРµРЅС‚Р°СЂРёР№, permissions].
+     * Применение решения к данным комментария (для хук comment_add_permissions / comment_before_add).
+     * Возвращает [комментарий, permissions].
      */
     public function applyToComment(array $comment, array $permissions, array $check): array {
 
@@ -475,26 +475,26 @@ class modelAiModerator extends cmsModel {
 
         $mode = $options['moderation_mode'] ?? 'post';
 
-        // РџРѕСЃС‚-РјРѕРґРµСЂР°С†РёСЏ: РїСѓР±Р»РёРєСѓРµРј СЃСЂР°Р·Сѓ, РґРµР№СЃС‚РІРёРµ РїСЂРёРјРµРЅСЏРµС‚СЃСЏ РїРѕСЃР»Рµ РґРѕР±Р°РІР»РµРЅРёСЏ (С…СѓРє comment_after_add)
+        // Пост-модерация: публикуем сразу, действие применяется после добавления (хук comment_after_add)
         if ($mode === 'post') {
             return [$comment, $permissions];
         }
 
-        // РџСЂРµРґ-РјРѕРґРµСЂР°С†РёСЏ: СЂРµС€Р°РµРј Р”Рћ РїСѓР±Р»РёРєР°С†РёРё
+        // Пред-модерация: решаем ДО публикации
         switch ($check['action']) {
             case 'delete':
-                // РћС‚РєР»РѕРЅСЏРµРј РїРѕР»РЅРѕСЃС‚СЊСЋ (РЅРµ СЃРѕС…СЂР°РЅСЏРµРј)
+                // Отклоняем полностью (не сохраняем)
                 $permissions['error']   = true;
                 $permissions['message'] = LANG_AIM_COMMENT_BLOCKED;
                 break;
             case 'moderate':
             case 'hide':
-                // РќРµ РїСѓР±Р»РёРєСѓРµРј; hide РІ РїСЂРµРґ-СЂРµР¶РёРјРµ С‚РѕР¶Рµ СѓРІРѕРґРёС‚ РЅР° РјРѕРґРµСЂР°С†РёСЋ
+                // Не публикуем; hide в пред-режиме тоже уводит на модерацию
                 $comment['is_approved'] = 0;
                 break;
             case 'log':
             default:
-                // РўРѕР»СЊРєРѕ Р»РѕРі
+                // Только лог
                 break;
         }
 
@@ -502,7 +502,7 @@ class modelAiModerator extends cmsModel {
     }
 
     /**
-     * РџРѕСЃС‚-РјРѕРґРµСЂР°С†РёСЏ РєРѕРјРјРµРЅС‚Р°СЂРёСЏ: РїСЂРёРјРµРЅСЏРµС‚ РґРµР№СЃС‚РІРёРµ РїРѕСЃР»Рµ РґРѕР±Р°РІР»РµРЅРёСЏ.
+     * Пост-модерация комментария: применяет действие после добавления.
      */
     public function applyToExistingComment(array $comment, array $check = []): array {
 
@@ -518,8 +518,8 @@ class modelAiModerator extends cmsModel {
     }
 
     /**
-     * РџСЂРёРјРµРЅСЏРµС‚ СЂРµС€РµРЅРёРµ РјРѕРґРµСЂР°С†РёРё Рє СЃСѓС‰РµСЃС‚РІСѓСЋС‰РµРјСѓ РєРѕРјРјРµРЅС‚Р°СЂРёСЋ.
-     * РСЃРїРѕР»СЊР·СѓРµС‚СЃСЏ РІ РїРѕСЃС‚-РјРѕРґРµСЂР°С†РёРё Рё РїСЂРё РјР°СЃСЃРѕРІРѕР№ РїРµСЂРµРїСЂРѕРІРµСЂРєРµ.
+     * Применяет решение модерации к существующему комментарию.
+     * Используется в пост-модерации и при массовой перепроверке.
      */
     public function applyCommentDecision(array $comment, string $action): array {
 
@@ -538,7 +538,7 @@ class modelAiModerator extends cmsModel {
                 $text = $this->getHideCommentText();
                 $text_html = html($text, false);
                 $comments->updateCommentContent($comment['id'], $text, $text_html);
-                // РџСЂРёР·РЅР°Рє СЃРєСЂС‹С‚РёСЏ РїРёС€РµРј РЅР°РїСЂСЏРјСѓСЋ (РІ РѕР±С…РѕРґ РїСЂРѕРІРµСЂРєРё РїРѕР»РµР№ РјРѕРґРµР»Рё)
+                // Признак скрытия пишем напрямую (в обход проверки полей модели)
                 $this->db->query("UPDATE {#}comments SET is_hidden = 1 WHERE id = " . (int)$comment['id']);
                 $comment['content']      = $text;
                 $comment['content_html'] = $text_html;
@@ -559,7 +559,7 @@ class modelAiModerator extends cmsModel {
     }
 
     /**
-     * РџСЂРёРјРµРЅСЏРµС‚ СЂРµС€РµРЅРёРµ РјРѕРґРµСЂР°С†РёРё Рє СЃСѓС‰РµСЃС‚РІСѓСЋС‰РµР№ Р·Р°РїРёСЃРё РєРѕРЅС‚РµРЅС‚Р°.
+     * Применяет решение модерации к существующей записи контента.
      */
     public function applyContentDecision(string $ctype_name, int $item_id, string $action): bool {
 
@@ -590,22 +590,22 @@ class modelAiModerator extends cmsModel {
     }
 
     // =========================================================================
-    // РђСЃРёРЅС…СЂРѕРЅРЅР°СЏ (С„РѕРЅРѕРІР°СЏ) РјРѕРґРµСЂР°С†РёСЏ
+    // Асинхронная (фоновая) модерация
     // =========================================================================
 
     /**
-     * Р—Р°РїСѓСЃРєР°РµС‚ С„РѕРЅРѕРІС‹Р№ РІРѕСЂРєРµСЂ РјРѕРґРµСЂР°С†РёРё (php.exe) Р±РµР· Р±Р»РѕРєРёСЂРѕРІРєРё С‚РµРєСѓС‰РµРіРѕ Р·Р°РїСЂРѕСЃР°.
+     * Запускает фоновый воркер модерации (php.exe) без блокировки текущего запроса.
      *
-     * РќР° Windows РёСЃРїРѕР»СЊР·СѓРµС‚СЃСЏ proc_open СЃ bypass_shell; РІРѕСЂРєРµСЂ СЃС‚Р°СЂС‚СѓРµС‚
-     * РѕС‚РґРµР»СЊРЅС‹Рј РїСЂРѕС†РµСЃСЃРѕРј Рё Р¶РёРІС‘С‚ РїРѕСЃР»Рµ Р·Р°РІРµСЂС€РµРЅРёСЏ HTTP-Р·Р°РїСЂРѕСЃР°.
+     * На Windows используется proc_open с bypass_shell; воркер стартует
+     * отдельным процессом и живёт после завершения HTTP-запроса.
      *
-     * @return bool true вЂ” РІРѕСЂРєРµСЂ Р·Р°РїСѓС‰РµРЅ; false вЂ” РЅСѓР¶РЅРѕ РїСЂРѕРІРµСЂРёС‚СЊ СЃРёРЅС…СЂРѕРЅРЅРѕ
+     * @return bool true — воркер запущен; false — нужно проверить синхронно
      */
     public function spawnModerationWorker(string $job, array $payload = []): bool {
 
         if (!function_exists('proc_open')) { return false; }
 
-        // Р’ web-SAPI (cgi/fpm) PHP_BINARY СѓРєР°Р·С‹РІР°РµС‚ РЅРµ РЅР° CLI. РџРѕРґР±РёСЂР°РµРј CLI-РёРЅС‚РµСЂРїСЂРµС‚Р°С‚РѕСЂ.
+        // В web-SAPI (cgi/fpm) PHP_BINARY указывает не на CLI. Подбираем CLI-интерпретатор.
         $php_binary = PHP_BINARY;
         $base_name  = strtolower(basename($php_binary));
         if (strpos($base_name, 'cgi') !== false) {
@@ -633,16 +633,16 @@ class modelAiModerator extends cmsModel {
         $worker = __DIR__ . DIRECTORY_SEPARATOR . 'worker.php';
         if (!is_file($worker)) { return false; }
 
-        // Payload РїРµСЂРµРґР°С‘Рј С‡РµСЂРµР· РїРµСЂРµРјРµРЅРЅСѓСЋ РѕРєСЂСѓР¶РµРЅРёСЏ: РїСЂРё bypass_shell
-        // Windows Р»РѕРјР°РµС‚ РєР°РІС‹С‡РєРё JSON РІ РєРѕРјР°РЅРґРЅРѕР№ СЃС‚СЂРѕРєРµ (argv).
+        // Payload передаём через переменную окружения: при bypass_shell
+        // Windows ломает кавычки JSON в командной строке (argv).
         $payload_json = json_encode(['job' => $job, 'payload' => $payload], JSON_UNESCAPED_UNICODE);
 
         $cmd = '"' . $php_binary . '" -f "' . $worker . '"';
 
         $env = array_merge((is_array(getenv())) ? getenv() : [], ['AIMOD_PAYLOAD' => $payload_json]);
 
-        // Р’ РЅРµРєРѕС‚РѕСЂС‹С… shared-С…РѕСЃС‚РёРЅРіР°С… /dev/null РЅРµ РІС…РѕРґРёС‚ РІ open_basedir,
-        // РїРѕСЌС‚РѕРјСѓ РёСЃРїРѕР»СЊР·СѓРµРј РІСЂРµРјРµРЅРЅС‹Рµ С„Р°Р№Р»С‹ РёР· СЂР°Р·СЂРµС€С‘РЅРЅРѕР№ РґРёСЂРµРєС‚РѕСЂРёРё.
+        // В некоторых shared-хостингах /dev/null не входит в open_basedir,
+        // поэтому используем временные файлы из разрешённой директории.
         $tmp_dir = sys_get_temp_dir();
         $stdin_file  = tempnam($tmp_dir, 'aimod_in_');
         $stdout_file = tempnam($tmp_dir, 'aimod_out_');
@@ -657,14 +657,14 @@ class modelAiModerator extends cmsModel {
 
         if (!is_resource($proc)) { return false; }
 
-        // proc_close() РЅРµ РІС‹Р·С‹РІР°РµРј: РѕРЅ Р¶РґС‘С‚ Р·Р°РІРµСЂС€РµРЅРёСЏ РїСЂРѕС†РµСЃСЃР°.
-        // PHP РѕСЃРІРѕР±РѕРґРёС‚ С…РµРЅРґР» СЃР°Рј РїСЂРё РѕРєРѕРЅС‡Р°РЅРёРё Р·Р°РїСЂРѕСЃР°.
+        // proc_close() не вызываем: он ждёт завершения процесса.
+        // PHP освободит хендл сам при окончании запроса.
 
         return true;
     }
 
     /**
-     * Р¤РѕРЅРѕРІР°СЏ РјРѕРґРµСЂР°С†РёСЏ РґРѕР±Р°РІР»РµРЅРЅРѕРіРѕ РєРѕРјРјРµРЅС‚Р°СЂРёСЏ (РїРѕСЃС‚-РјРѕРґРµСЂР°С†РёСЏ).
+     * Фоновая модерация добавленного комментария (пост-модерация).
      */
     public function processCommentModeration(array $payload) {
 
@@ -697,7 +697,7 @@ class modelAiModerator extends cmsModel {
     }
 
     /**
-     * Р¤РѕРЅРѕРІР°СЏ РјРѕРґРµСЂР°С†РёСЏ Р·Р°РїРёСЃРё РєРѕРЅС‚РµРЅС‚Р° (РїРѕСЃС‚-РјРѕРґРµСЂР°С†РёСЏ).
+     * Фоновая модерация записи контента (пост-модерация).
      */
     public function processContentModeration(array $payload) {
 
@@ -772,15 +772,15 @@ class modelAiModerator extends cmsModel {
     }
 
     // =========================================================================
-    // РќР°СЂСѓС€РёС‚РµР»Рё
+    // Нарушители
     // =========================================================================
 
     /**
-     * РЎРїРёСЃРѕРє РЅР°СЂСѓС€РёС‚РµР»РµР№ (Р°РіСЂРµРіР°С†РёСЏ РїРѕ author-С‚РѕРєРµРЅСѓ РёР· РґР°РЅРЅС‹С… Р»РѕРіРѕРІ).
+     * Список нарушителей (агрегация по author-токену из данных логов).
      *
-     * РќР°СЂСѓС€РёС‚РµР»СЊ = Р°РІС‚РѕСЂРёР·РѕРІР°РЅРЅС‹Р№ РїРѕР»СЊР·РѕРІР°С‚РµР»СЊ (user_id > 0) Р»РёР±Рѕ РіРѕСЃС‚СЊ
-     * СЃ СЌРєСЂР°РЅРёСЂРѕРІР°РЅРЅС‹Рј author-С‚РѕРєРµРЅРѕРј (ip, РЅРёРє, email), Сѓ РєРѕС‚РѕСЂРѕРіРѕ Р±С‹Р»Рё
-     * СЃРїР°Рј-СЃРѕР±С‹С‚РёСЏ (action РІ delete/moderate/hide/block).
+     * Нарушитель = авторизованный пользователь (user_id > 0) либо гость
+     * с экранированным author-токеном (ip, ник, email), у которого были
+     * спам-события (action в delete/moderate/hide/block).
      *
      * @return array ['items' => [...], 'total' => int]
      */
@@ -852,7 +852,7 @@ class modelAiModerator extends cmsModel {
     }
 
     /**
-     * Р”РµС‚Р°Р»РёР·Р°С†РёСЏ РЅР°СЂСѓС€РёС‚РµР»СЏ: РІСЃРµ РµРіРѕ СЃРїР°Рј-Р·Р°РїРёСЃРё РІ Р¶СѓСЂРЅР°Р»Рµ.
+     * Детализация нарушителя: все его спам-записи в журнале.
      */
     public function getViolatorLogs(string $author_key, int $page = 1, int $perpage = 20): array {
 
@@ -903,7 +903,7 @@ class modelAiModerator extends cmsModel {
     }
 
     /**
-     * Р’РѕР·РІСЂР°С‰Р°РµС‚ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ РїРѕ РЅР°СЂСѓС€РёС‚РµР»СЋ (РґР»СЏ РґРµС‚Р°Р»РµР№).
+     * Возвращает пользователя по нарушителю (для деталей).
      */
     public function getViolatorUser(string $author_key): ?array {
         if (strpos($author_key, 'user:') !== 0) {
@@ -915,11 +915,11 @@ class modelAiModerator extends cmsModel {
     }
 
     // =========================================================================
-    // РџРµСЂРµРїСЂРѕРІРµСЂРєР° Р·Р°РїРёСЃРµР№ РЅР°СЂСѓС€РёС‚РµР»СЏ
+    // Перепроверка записей нарушителя
     // =========================================================================
 
     /**
-     * Р’СЃРµ РєРѕРјРјРµРЅС‚Р°СЂРёРё РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ (РІРєР»СЋС‡Р°СЏ СЃРєСЂС‹С‚С‹Рµ/РЅР° РјРѕРґРµСЂР°С†РёРё/СѓРґР°Р»С‘РЅРЅС‹Рµ).
+     * Все комментарии пользователя (включая скрытые/на модерации/удалённые).
      */
     public function getUserCommentsForCheck(int $user_id): array {
         if (!$user_id) { return []; }
@@ -939,7 +939,7 @@ class modelAiModerator extends cmsModel {
     }
 
     /**
-     * Р’СЃРµ Р·Р°РїРёСЃРё РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ РІРѕ РІСЃРµС… С‚РёРїР°С… РєРѕРЅС‚РµРЅС‚Р°.
+     * Все записи пользователя во всех типах контента.
      * @return array [ ['ctype' => .., 'ctype_title' => .., 'items' => [..]] ]
      */
     public function getUserContentForCheck(int $user_id): array {
@@ -984,8 +984,8 @@ class modelAiModerator extends cmsModel {
     }
 
     /**
-     * РС‚РѕРіРѕРІР°СЏ РїСЂРѕРІРµСЂРєР° Р°РІС‚РѕСЂР°: СЃРѕР±РёСЂР°РµС‚ РІСЃРµ РєРѕРјРјРµРЅС‚Р°СЂРёРё Рё Р·Р°РїРёСЃРё,
-     * РїСЂРѕРіРѕРЅСЏРµС‚ С‡РµСЂРµР· checkText Рё РІРѕР·РІСЂР°С‰Р°РµС‚ СЃРІРѕРґРєСѓ РїРѕ РєР°Р¶РґРѕРјСѓ РѕР±СЉРµРєС‚Сѓ.
+     * Итоговая проверка автора: собирает все комментарии и записи,
+     * прогоняет через checkText и возвращает сводку по каждому объекту.
      *
      * @return array ['checked' => int, 'flagged' => int, 'by_type' => [comment=>N, content=>N], 'items' => [...]]
      */
@@ -1009,7 +1009,7 @@ class modelAiModerator extends cmsModel {
             }
         }
 
-        // РџСЂРѕРІРµСЂСЏРµРј РєРѕРјРјРµРЅС‚Р°СЂРёРё
+        // Проверяем комментарии
         foreach ($collections as $c) {
             $check = $this->checkText($c['text'], ['user_id' => $user_id, 'recheck' => true, 'subject' => 'comment', 'subject_id' => (int)$c['subject_id']]);
             $result['checked']++;
@@ -1055,7 +1055,7 @@ class modelAiModerator extends cmsModel {
             $result['items'][] = $item;
         }
 
-        // РџСЂРѕРІРµСЂСЏРµРј Р·Р°РїРёСЃРё РєРѕРЅС‚РµРЅС‚Р°
+        // Проверяем записи контента
         foreach ($contentGroups as $group) {
             foreach ($group['items'] as $c) {
                 $check = $this->checkText($c['text'], ['user_id' => $user_id, 'recheck' => true, 'subject' => 'content', 'subject_id' => (int)$c['subject_id']]);
@@ -1106,14 +1106,14 @@ class modelAiModerator extends cmsModel {
     }
 
     // =========================================================================
-    // РћС‡РµСЂРµРґСЊ С„РѕРЅРѕРІРѕР№ РїРµСЂРµРїСЂРѕРІРµСЂРєРё
+    // Очередь фоновой перепроверки
     // =========================================================================
 
     /**
-     * РЎРѕР·РґР°С‘С‚ РѕС‡РµСЂРµРґСЊ РїРµСЂРµРїСЂРѕРІРµСЂРєРё РІСЃРµС… РјР°С‚РµСЂРёР°Р»РѕРІ Р°РІС‚РѕСЂР°.
-     * РџСЂРѕРїСѓСЃРєР°РµС‚ СѓР¶Рµ РїСЂРѕРІРµСЂРµРЅРЅС‹Рµ Рё РЅРµРёР·РјРµРЅС‘РЅРЅС‹Рµ Р·Р°РїРёСЃРё (cms_ai_moderator_checked).
+     * Создаёт очередь перепроверки всех материалов автора.
+     * Пропускает уже проверенные и неизменённые записи (cms_ai_moderator_checked).
      *
-     * @return int РљРѕР»РёС‡РµСЃС‚РІРѕ РґРѕР±Р°РІР»РµРЅРЅС‹С… Р·Р°РґР°С‡
+     * @return int Количество добавленных задач
      */
     public function createRecheckQueue(string $author_key, int $user_id, bool $apply = false): int {
 
@@ -1122,12 +1122,12 @@ class modelAiModerator extends cmsModel {
         $options = cmsController::loadOptions('ai_moderator');
         if (empty($options['enabled'])) { return 0; }
 
-        // РЈРґР°Р»СЏРµРј СЃС‚Р°СЂС‹Рµ Р·Р°РґР°С‡Рё СЌС‚РѕР№ РїСЂРѕРІРµСЂРєРё
+        // Удаляем старые задачи этой проверки
         $this->db->query("DELETE FROM {#}ai_moderator_queue WHERE author_key = '" . $this->db->escape($author_key) . "'");
 
         $added = 0;
 
-        // РљРѕРјРјРµРЅС‚Р°СЂРёРё
+        // Комментарии
         $comments = $this->getUserCommentsForCheck($user_id);
         foreach ($comments as $c) {
             if (!empty($c['is_deleted'])) { continue; }
@@ -1146,7 +1146,7 @@ class modelAiModerator extends cmsModel {
             $added++;
         }
 
-        // Р—Р°РїРёСЃРё РєРѕРЅС‚РµРЅС‚Р°
+        // Записи контента
         $contentGroups = $this->getUserContentForCheck($user_id);
         foreach ($contentGroups as $group) {
             foreach ($group['items'] as $c) {
@@ -1171,7 +1171,7 @@ class modelAiModerator extends cmsModel {
     }
 
     /**
-     * РџСЂРѕРІРµСЂСЏРµС‚, РµСЃС‚СЊ Р»Рё РєРµС€РёСЂРѕРІР°РЅРЅС‹Р№ СЂРµР·СѓР»СЊС‚Р°С‚ РїСЂРѕРІРµСЂРєРё РґР»СЏ РЅРµРёР·РјРµРЅС‘РЅРЅРѕРіРѕ С‚РµРєСЃС‚Р°.
+     * Проверяет, есть ли кешированный результат проверки для неизменённого текста.
      */
     public function isChecked(string $subject, int $subject_id, string $text_hash): bool {
         $row = $this->db->getRow(
@@ -1183,7 +1183,7 @@ class modelAiModerator extends cmsModel {
     }
 
     /**
-     * РЎС‚Р°С‚РёСЃС‚РёРєР° РѕС‡РµСЂРµРґРё РґР»СЏ Р°РІС‚РѕСЂР°.
+     * Статистика очереди для автора.
      */
     public function getQueueStats(string $author_key): array {
         $sql = "SELECT status, COUNT(*) AS cnt FROM {#}ai_moderator_queue WHERE author_key = '" . $this->db->escape($author_key) . "' GROUP BY status";
@@ -1200,7 +1200,7 @@ class modelAiModerator extends cmsModel {
     }
 
     /**
-     * Р РµР·СѓР»СЊС‚Р°С‚С‹ РїСЂРѕРІРµСЂРєРё РґР»СЏ Р°РІС‚РѕСЂР°.
+     * Результаты проверки для автора.
      */
     public function getQueueResults(string $author_key): array {
         return $this->
@@ -1214,7 +1214,7 @@ class modelAiModerator extends cmsModel {
     }
 
     /**
-     * Р•СЃС‚СЊ Р»Рё Р°РєС‚РёРІРЅС‹Рµ (pending/running) Р·Р°РґР°С‡Рё РґР»СЏ Р°РІС‚РѕСЂР°.
+     * Есть ли активные (pending/running) задачи для автора.
      */
     public function isQueueActive(string $author_key): bool {
         $row = $this->db->getRow(
@@ -1226,11 +1226,11 @@ class modelAiModerator extends cmsModel {
     }
 
     /**
-     * Р‘РµСЂС‘С‚ РїР°С‡РєСѓ pending-Р·Р°РґР°С‡ Рё РїРѕРјРµС‡Р°РµС‚ РёС… РєР°Рє running.
+     * Берёт пачку pending-задач и помечает их как running.
      */
     public function acquirePendingTasks(string $author_key, int $limit = 5): array {
         $ids = [];
-        // Р—Р°Р±РёСЂР°РµРј pending Рё "Р·Р°РІРёСЃС€РёРµ" running (СЃС‚Р°СЂС€Рµ 5 РјРёРЅСѓС‚ вЂ” РІРѕСЂРєРµСЂ РјРѕРі СѓРїР°СЃС‚СЊ)
+        // Забираем pending и "зависшие" running (старше 5 минут — воркер мог упасть)
         $stale = date('Y-m-d H:i:s', time() - 300);
         $sql = "SELECT id FROM {#}ai_moderator_queue WHERE author_key = '" . $this->db->escape($author_key) . "' AND (status = 'pending' OR (status = 'running' AND created_at < '" . $this->db->escape($stale) . "')) ORDER BY id ASC LIMIT " . (int)$limit;
         $res = $this->db->query($sql);
@@ -1256,7 +1256,7 @@ class modelAiModerator extends cmsModel {
     }
 
     /**
-     * РџРѕРјРµС‡Р°РµС‚ Р·Р°РґР°С‡Сѓ РІС‹РїРѕР»РЅРµРЅРЅРѕР№ Рё СЃРѕС…СЂР°РЅСЏРµС‚ СЂРµР·СѓР»СЊС‚Р°С‚.
+     * Помечает задачу выполненной и сохраняет результат.
      */
     public function markTaskDone(int $task_id, array $check): void {
         $this->update('ai_moderator_queue', $task_id, [
@@ -1270,7 +1270,7 @@ class modelAiModerator extends cmsModel {
     }
 
     /**
-     * РџРѕРјРµС‡Р°РµС‚ Р·Р°РґР°С‡Сѓ СЃ РѕС€РёР±РєРѕР№.
+     * Помечает задачу с ошибкой.
      */
     public function markTaskError(int $task_id, string $message): void {
         $this->update('ai_moderator_queue', $task_id, [
@@ -1281,7 +1281,7 @@ class modelAiModerator extends cmsModel {
     }
 
     /**
-     * РЎРѕС…СЂР°РЅСЏРµС‚ С„Р°РєС‚ РїСЂРѕРІРµСЂРєРё РІ РєРµС€ (С‡С‚РѕР±С‹ РІ СЃР»РµРґСѓСЋС‰РёР№ СЂР°Р· РїСЂРѕРїСѓСЃРєР°С‚СЊ РЅРµРёР·РјРµРЅС‘РЅРЅС‹Р№ С‚РµРєСЃС‚).
+     * Сохраняет факт проверки в кеш (чтобы в следующий раз пропускать неизменённый текст).
      */
     public function markChecked(array $task, array $check): void {
         try {
@@ -1295,12 +1295,12 @@ class modelAiModerator extends cmsModel {
                 'result_reason' => mb_substr($check['reason'], 0, 500),
             ]);
         } catch (\Throwable $e) {
-            // UNIQUE-РєРѕРЅС„Р»РёРєС‚ РїСЂРё РїР°СЂР°Р»Р»РµР»СЊРЅРѕР№ РѕР±СЂР°Р±РѕС‚РєРµ вЂ” РёРіРЅРѕСЂРёСЂСѓРµРј
+            // UNIQUE-конфликт при параллельной обработке — игнорируем
         }
     }
 
     /**
-     * Р¤РѕСЂРјРёСЂСѓРµС‚ Р°Р±СЃРѕР»СЋС‚РЅС‹Р№ URL РєРѕРјРјРµРЅС‚Р°СЂРёСЏ РёР· target_url Р·Р°РїРёСЃРё cms_comments.
+     * Формирует абсолютный URL комментария из target_url записи cms_comments.
      */
     public function makeCommentTargetUrl(array $comment): string {
 
@@ -1318,7 +1318,7 @@ class modelAiModerator extends cmsModel {
     }
 
     /**
-     * Р—Р°РіСЂСѓР¶Р°РµС‚ Р°РєС‚СѓР°Р»СЊРЅС‹Рµ РґР°РЅРЅС‹Рµ Р·Р°РґР°С‡Рё: С‚РµРєСЃС‚ Рё URL РґР»СЏ РїРµСЂРµС…РѕРґР°.
+     * Загружает актуальные данные задачи: текст и URL для перехода.
      */
     public function loadTaskData(array $task): array {
         $data = ['text' => '', 'target_url' => ''];
@@ -1351,14 +1351,14 @@ class modelAiModerator extends cmsModel {
     }
 
     /**
-     * РџРѕР»СѓС‡Р°РµС‚ Р°РєС‚СѓР°Р»СЊРЅС‹Р№ С‚РµРєСЃС‚ Р·Р°РґР°С‡Рё РёР· Р‘Р”.
+     * Получает актуальный текст задачи из БД.
      */
     public function getTaskText(array $task): string {
         return $this->loadTaskData($task)['text'];
     }
 
     /**
-     * РћР±СЂР°Р±Р°С‚С‹РІР°РµС‚ РѕС‡РµСЂРµРґСЊ Р·Р°РґР°С‡ РґР»СЏ Р°РІС‚РѕСЂР° (РІС‹Р·С‹РІР°РµС‚СЃСЏ РёР· worker.php).
+     * Обрабатывает очередь задач для автора (вызывается из worker.php).
      */
     public function processQueue(string $author_key): void {
 
@@ -1388,7 +1388,7 @@ class modelAiModerator extends cmsModel {
 
                     $check = $this->checkText($text, $ctx);
 
-                    // РџСЂРёРјРµРЅСЏРµРј СЂРµС€РµРЅРёРµ, РµСЃР»Рё РІРєР»СЋС‡РµРЅРѕ
+                    // Применяем решение, если включено
                     if (!empty($task['apply']) && $check['action'] !== 'none' && $check['action'] !== 'log') {
                         if ($task['subject'] === 'comment') {
                             $comment = $this->getItemById('comments', (int)$task['subject_id']);
@@ -1400,7 +1400,7 @@ class modelAiModerator extends cmsModel {
                         }
                     }
 
-                    // РџРёС€РµРј Р»РѕРі С‚РѕР»СЊРєРѕ РµСЃР»Рё РЅР°С€Р»Рё РЅР°СЂСѓС€РµРЅРёРµ
+                    // Пишем лог только если нашли нарушение
                     if ($check['action'] !== 'none' && $check['action'] !== 'log') {
                         $this->log($ctx, $check['action'], $check['reason'], [
                             'text'         => $text,
@@ -1422,7 +1422,7 @@ class modelAiModerator extends cmsModel {
     }
 
 //============================================================================//
-//  РџСЂРѕРІРµСЂРєР° РѕР±РЅРѕРІР»РµРЅРёР№ РЅР° GitHub
+//  Проверка обновлений на GitHub
 //============================================================================//
 
     const GITHUB_REPO           = 'Kupers/ai_moderator-instantcms';

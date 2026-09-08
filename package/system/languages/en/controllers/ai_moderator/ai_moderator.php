@@ -78,6 +78,10 @@
     define('LANG_AIM_OPENAI_MODEL',       'OpenAI: model');
     define('LANG_AIM_TIMEOUT',            'Request timeout (sec)');
     define('LANG_AIM_TIMEOUT_HINT',       'Max LLM response wait time');
+    define('LANG_AIM_PRELOAD_MODEL',      'Ollama: preload model before checking');
+    define('LANG_AIM_PRELOAD_MODEL_HINT', 'Sends a short "wake-up" request before checking so the model is loaded and a cold start after idle does not cause a timeout');
+    define('LANG_AIM_OLLAMA_KEEP_ALIVE',  'Ollama: keep_alive');
+    define('LANG_AIM_OLLAMA_KEEP_ALIVE_HINT', 'How long to keep the model in memory after a request (so it does not unload on idle). Examples: 30m, 1h, 10m; -1 always');
 
     define('LANG_AIM_CHECK_CONNECTION',   'Check connection');
     define('LANG_AIM_CHECK_PENDING',      'Checking…');

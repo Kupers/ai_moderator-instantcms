@@ -288,6 +288,22 @@ class formAiModeratorOptions extends cmsForm {
                         'default' => '30m',
                     ]),
 
+                    new fieldCheckbox('bg_preload_enabled', [
+                        'title'   => LANG_AIM_BG_PRELOAD,
+                        'hint'    => LANG_AIM_BG_PRELOAD_HINT,
+                        'default' => 0,
+                    ]),
+
+                    new fieldNumber('bg_preload_interval', [
+                        'title'   => LANG_AIM_BG_PRELOAD_INTERVAL,
+                        'hint'    => LANG_AIM_BG_PRELOAD_INTERVAL_HINT,
+                        'default' => 15,
+                        'rules'   => [
+                            ['min' => 1],
+                        ],
+                        'units'   => LANG_AIM_BG_PRELOAD_INTERVAL_UNITS,
+                    ]),
+
                     new fieldString('yandex_api_key', [
                         'title'   => LANG_AIM_YANDEX_KEY,
                         'hint'    => LANG_AIM_YANDEX_KEY_HINT,

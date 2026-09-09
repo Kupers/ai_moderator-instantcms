@@ -84,6 +84,12 @@
     define('LANG_AIM_OLLAMA_KEEP_ALIVE',  'Ollama: keep_alive');
     define('LANG_AIM_OLLAMA_KEEP_ALIVE_HINT', 'Как долго держать модель в памяти после запроса (чтобы не выгружалась при простое). Примеры: 30m, 1h, 10m; -1 — всегда');
 
+    define('LANG_AIM_BG_PRELOAD',            'Фоновый прогрев по таймеру');
+    define('LANG_AIM_BG_PRELOAD_HINT',       'Держать модель тёплой по расписанию (системный CRON → «Расписание»). При включении автоматически создаётся задача планировщика ai_moderator → warmup. Работает вместе с «прогревом перед проверкой».');
+    define('LANG_AIM_BG_PRELOAD_INTERVAL',   'Интервал фонового прогрева (мин)');
+    define('LANG_AIM_BG_PRELOAD_INTERVAL_HINT', 'Как часто система будет «будить» модель. Рекомендуется не реже периода вашего системного CRON (обычно 5 минут).');
+    define('LANG_AIM_BG_PRELOAD_INTERVAL_UNITS', 'мин');
+
     define('LANG_AIM_CHECK_CONNECTION',   'Проверить соединение');
     define('LANG_AIM_CHECK_PENDING',      'Проверка…');
     define('LANG_AIM_CHECK_OK',           'Соединение установлено.');

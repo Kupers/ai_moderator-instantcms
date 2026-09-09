@@ -5,6 +5,24 @@ class modelAiModerator extends cmsModel {
     public $table = 'ai_moderator_logs';
 
     /**
+     * Фоновый прогрев модели (вызывается из крон-хука cron_warmup).
+     * Держит модель Ollama тёплой, если включён "Фоновый прогрев по таймеру".
+     */
+    public function warmupOllama(): void {
+
+        $options = cmsController::loadOptions('ai_moderator');
+
+        if (($options['backend'] ?? 'ollama') !== 'ollama') {
+            return;
+        }
+
+        require_once __DIR__ . '/lib/LLMTransport.php';
+
+        $transport = new LLMTransport($options);
+        $transport->warmUp();
+    }
+
+    /**
      * Точка входа: проверка текста по всем правилам.
      *
      * @param string $text  Проверяемый текст

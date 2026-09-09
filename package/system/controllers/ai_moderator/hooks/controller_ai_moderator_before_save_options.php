@@ -17,6 +17,7 @@ class onAiModeratorControllerAiModeratorBeforeSaveOptions extends cmsAction {
         $checkboxes = [
             'enabled', 'skip_moderators', 'flag_urls', 'notify_admin', 'logging_enabled',
             'sanctions_enabled', 'sanction_karma', 'sanction_ban', 'sanction_warning',
+            'preload_model', 'bg_preload_enabled',
         ];
 
         $categories = ['spam', 'ad', 'insult', 'malicious', 'hate', 'extremism', 'political'];

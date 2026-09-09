@@ -111,7 +111,7 @@ function after_install_package() {
     // Default options.
     // При обновлении мёржим новые ключи, чтобы старые настройки не ломали логику
     // (например, отсутствие moderation_mode или comment_spam_action).
-    $options_yaml = "---\nenabled: 0\nmoderation_mode: post\ncontent_spam_action: moderate\ncomment_spam_action: hide\nhide_comment_text: \"Сообщение скрыто модератором.\"\nspam_threshold: 0.85\nmin_length: 5\nskip_moderators: 1\nflag_urls: 0\nblacklist: \"\"\nnotify_admin: 1\nlogging_enabled: 1\nsanctions_enabled: 0\nsanction_scope: both\nsanction_karma: 0\nsanction_karma_points: -5\nsanction_ban: 0\nsanction_ban_days: 1\nsanction_warning: 0\nsanction_warning_text: \"Ваше сообщение было отклонено модератором за нарушение правил.\\nКатегория: [category]\\nПричина: [reason]\"\nbackend: ollama\nollama_host: \"http://127.0.0.1:11434\"\nollama_model: llama3.1\nyandex_api_key: \"\"\nyandex_folder_id: \"\"\nyandex_model: yandexgpt/latest\nopenai_url: \"\"\nopenai_api_key: \"\"\nopenai_model: gpt-4o-mini\ntimeout: 15\n";
+    $options_yaml = "---\nenabled: 0\nmoderation_mode: post\ncontent_spam_action: moderate\ncomment_spam_action: hide\nhide_comment_text: \"Сообщение скрыто модератором.\"\nspam_threshold: 0.85\nmin_length: 5\nskip_moderators: 1\nflag_urls: 0\nblacklist: \"\"\nnotify_admin: 1\nlogging_enabled: 1\nsanctions_enabled: 0\nsanction_scope: both\nsanction_karma: 0\nsanction_karma_points: -5\nsanction_ban: 0\nsanction_ban_days: 1\nsanction_warning: 0\nsanction_warning_text: \"Ваше сообщение было отклонено модератором за нарушение правил.\\nКатегория: [category]\\nПричина: [reason]\"\nbackend: ollama\nollama_host: \"http://127.0.0.1:11434\"\nollama_model: llama3.1\nyandex_api_key: \"\"\nyandex_folder_id: \"\"\nyandex_model: yandexgpt/latest\nopenai_url: \"\"\nopenai_api_key: \"\"\nopenai_model: gpt-4o-mini\ntimeout: 15\nbg_preload_enabled: 0\nbg_preload_interval: 15\n";
 
     try {
         $default_options = \cmsModel::yamlToArray($options_yaml);
@@ -123,6 +123,17 @@ function after_install_package() {
         $merged = array_replace_recursive($default_options, $existing_options ?: []);
         $merged_yaml = \cmsModel::arrayToYaml($merged);
         @$db->query("UPDATE `{#}controllers` SET `options` = '" . $db->escape($merged_yaml) . "' WHERE `name` = 'ai_moderator'");
+    } catch (\Throwable $e) {}
+
+    // Регистрируем событие для хука after_save_options, если его ещё нет.
+    // (Хук создаёт задачу планировщика для «Фонового прогрева по таймеру».)
+    try {
+        $exists = $db->getRow('events', "`listener` = 'ai_moderator' AND `event` = 'controller_ai_moderator_after_save_options'");
+        if (!$exists) {
+            @$db->query("INSERT INTO `{#}events` (`event`, `listener`, `ordering`, `is_enabled`)
+                SELECT 'controller_ai_moderator_after_save_options', 'ai_moderator', COALESCE(MAX(`ordering`), 0) + 1, 1
+                FROM `{#}events`");
+        }
     } catch (\Throwable $e) {}
 
     // Сбрасываем кеш опций/контроллеров, чтобы изменения применились сразу

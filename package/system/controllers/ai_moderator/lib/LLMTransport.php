@@ -156,6 +156,20 @@ class LLMTransport {
     }
 
     /**
+     * Публичная точка прогрева модели.
+     * Используется фоновым крон-прогревом (cron_warmup) и preload-прогревом
+     * перед проверкой. Для не-Ollama бэкендов ничего не делает.
+     */
+    public function warmUp(): void {
+
+        if (($this->options['backend'] ?? 'ollama') !== 'ollama') {
+            return;
+        }
+
+        $this->warmUpOllama();
+    }
+
+    /**
      * Драйвер YandexGPT (foundationModels/v1/completion)
      */
     protected function moderateYandexGPT(string $system, string $text) {

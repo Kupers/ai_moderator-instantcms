@@ -84,6 +84,12 @@
     define('LANG_AIM_OLLAMA_KEEP_ALIVE',  'Ollama: keep_alive');
     define('LANG_AIM_OLLAMA_KEEP_ALIVE_HINT', 'How long to keep the model in memory after a request (so it does not unload on idle). Examples: 30m, 1h, 10m; -1 always');
 
+    define('LANG_AIM_BG_PRELOAD',            'Background warm-up by timer');
+    define('LANG_AIM_BG_PRELOAD_HINT',       'Keeps the model warm on a schedule (system CRON → "Scheduler"). When enabled, a scheduler task ai_moderator → warmup is created automatically. Works together with "preload before check".');
+    define('LANG_AIM_BG_PRELOAD_INTERVAL',   'Warm-up interval (minutes)');
+    define('LANG_AIM_BG_PRELOAD_INTERVAL_HINT', 'How often the model will be woken up. Recommended no less frequent than your system CRON period (usually 5 minutes).');
+    define('LANG_AIM_BG_PRELOAD_INTERVAL_UNITS', 'min');
+
     define('LANG_AIM_CHECK_CONNECTION',   'Check connection');
     define('LANG_AIM_CHECK_PENDING',      'Checking…');
     define('LANG_AIM_CHECK_OK',           'Connection is working.');

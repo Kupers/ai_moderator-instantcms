@@ -14,6 +14,7 @@
     <table class="table table-striped">
         <thead>
             <tr>
+                <th style="width:1px;"></th>
                 <th>ID</th>
                 <th><?php echo LANG_AIM_LOGS_COL_CREATED; ?></th>
                 <th><?php echo LANG_AIM_LOGS_COL_SUBJECT; ?></th>
@@ -40,6 +41,15 @@
                 }
             ?>
                 <tr>
+                    <td>
+                        <?php if (!empty($log['target_url']) && (string)$log['target_url'] !== '') { ?>
+                            <a href="<?php echo htmlspecialchars($log['target_url']); ?>" target="_blank" title="<?php echo LANG_AIM_OPEN_TARGET; ?>" class="text-decoration-none">
+                                <?php echo html_svg_icon('solid', 'external-link-alt', 16, false); ?>
+                            </a>
+                        <?php } else { ?>
+                            <span class="text-muted">—</span>
+                        <?php } ?>
+                    </td>
                     <td><?php echo (int)$log['id']; ?></td>
                     <td><?php echo html_date($log['date_pub'], true); ?></td>
                     <td><?php html($log['subject'] ?: '-'); ?><?php if ($log['subject_id']) { ?> #<?php echo (int)$log['subject_id']; ?><?php } ?></td>

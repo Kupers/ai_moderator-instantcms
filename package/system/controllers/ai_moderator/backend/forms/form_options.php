@@ -299,7 +299,7 @@ class formAiModeratorOptions extends cmsForm {
                         'hint'    => LANG_AIM_BG_PRELOAD_INTERVAL_HINT,
                         'default' => 15,
                         'rules'   => [
-                            ['min' => 1],
+                            ['min', 1],
                         ],
                         'units'   => LANG_AIM_BG_PRELOAD_INTERVAL_UNITS,
                     ]),

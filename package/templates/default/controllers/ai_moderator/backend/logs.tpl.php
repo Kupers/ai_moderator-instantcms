@@ -30,7 +30,8 @@
                 $cls = 'text-success';
                 switch ($log['action']) {
                     case 'block':
-                    case 'delete':  $cls = 'text-danger';  $label = LANG_AIM_LOGS_ACT_DELETE;   break;
+                    case 'delete':
+                    case 'hard_delete': $cls = 'text-danger';  $label = LANG_AIM_LOGS_ACT_DELETE;   break;
                     case 'moderate': $cls = 'text-warning'; $label = LANG_AIM_LOGS_ACT_MODERATE; break;
                     case 'hide':    $cls = 'text-secondary';$label = LANG_AIM_LOGS_ACT_HIDE;     break;
                     case 'log':     $cls = 'text-muted';   $label = LANG_AIM_LOGS_ACT_LOG;      break;

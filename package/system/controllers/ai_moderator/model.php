@@ -11,7 +11,7 @@ class modelAiModerator extends cmsModel {
      * @param array  $ctx   Контекст: тип ('comment'|'content'), id, автор и т.п.
      * @return array {
      *   'is_spam'    bool,
-     *   'action'     'none'|'log'|'moderate'|'hide'|'delete',
+     *   'action'     'none'|'log'|'moderate'|'hide'|'delete'|'hard_delete',
      *   'score'      float,
      *   'category'   string,
      *   'reason'     string,
@@ -97,7 +97,7 @@ class modelAiModerator extends cmsModel {
             ]);
         }
 
-        if ($action === 'delete' || $action === 'moderate' || $action === 'hide') {
+        if ($action === 'delete' || $action === 'hard_delete' || $action === 'moderate' || $action === 'hide') {
             if (empty($ctx['recheck'])) {
                 $this->notifyAdmin($ctx, $action, $llm['reason'], $text);
                 $this->applySanctions($ctx, $llm, $options);
@@ -450,6 +450,8 @@ class modelAiModerator extends cmsModel {
 
             if ($action === 'delete') {
                 $subject = 'AI-модератор: удалён спам';
+            } elseif ($action === 'hard_delete') {
+                $subject = 'AI-модератор: удалён спам физически';
             } elseif ($action === 'hide') {
                 $subject = 'AI-модератор: скрыт комментарий';
             } else {
@@ -584,9 +586,37 @@ class modelAiModerator extends cmsModel {
                 $content->update($table, $item_id, ['is_approved' => 0, 'is_pub' => 0]);
                 return true;
             }
+            if ($action === 'hard_delete') {
+                return $this->hardDeleteContent($content, $ctype_name, $item_id);
+            }
         } catch (\Throwable $e) {}
 
         return false;
+    }
+
+    /**
+     * Физически удаляет запись контента вместе со связями.
+     */
+    public function hardDeleteContent($content, string $ctype_name, int $item_id): bool {
+
+        if (!$content) {
+            $content = cmsCore::getModel('content');
+        }
+
+        // Общий языковой файл (LANG_PARSER_* и др.) в CLI-воркере не подключён
+        // по умолчанию, а deleteContentItem полагается на него
+        \cmsCore::loadLanguage();
+
+        $table = $content->getContentTypeTableName($ctype_name);
+        if (!$table) { return false; }
+
+        // Снимаем ограничения фильтров: запись может быть уже скрытой/неодобренной
+        $content->disableApprovedFilter()->disableDeleteFilter()->disablePrivacyFilter();
+
+        $item = $content->getContentItem($ctype_name, $item_id);
+        if (!$item) { return false; }
+
+        return (bool)$content->deleteContentItem($ctype_name, $item_id);
     }
 
     // =========================================================================
@@ -740,6 +770,9 @@ class modelAiModerator extends cmsModel {
             if ($check['action'] === 'delete') {
                 $content->update($table, $item_id, ['is_approved' => 0, 'is_pub' => 0]);
             }
+            if ($check['action'] === 'hard_delete') {
+                $this->hardDeleteContent($content, $ctype_name, $item_id);
+            }
         } catch (\Throwable $e) {}
     }
 
@@ -786,7 +819,7 @@ class modelAiModerator extends cmsModel {
      */
     public function getViolators(int $page = 1, int $perpage = 20): array {
 
-        $spam_actions = "'delete','moderate','hide','block'";
+        $spam_actions = "'delete','hard_delete','moderate','hide','block'";
 
         $count_sql = "SELECT COUNT(DISTINCT v.author_key) AS cnt FROM (
             SELECT CASE
@@ -857,7 +890,7 @@ class modelAiModerator extends cmsModel {
     public function getViolatorLogs(string $author_key, int $page = 1, int $perpage = 20): array {
 
         $user_id   = 0;
-        $condition = "l.action IN ('delete','moderate','hide','block')";
+        $condition = "l.action IN ('delete','hard_delete','moderate','hide','block')";
 
         if (strpos($author_key, 'user:') === 0) {
             $user_id   = (int)substr($author_key, 5);

@@ -17,6 +17,7 @@
     define('LANG_AIM_SPAM_ACTION_COMMENT_HINT',  'Action when spam is detected in comments');
     define('LANG_AIM_SPAM_ACTION_MODERATE',      'Send to moderation');
     define('LANG_AIM_SPAM_ACTION_DELETE_CONTENT','Do not publish (unpublish)');
+    define('LANG_AIM_SPAM_ACTION_DELETE_HARD',    'Delete permanently (from database)');
     define('LANG_AIM_SPAM_ACTION_DELETE_COMMENT','Delete comment');
     define('LANG_AIM_SPAM_ACTION_HIDE',          'Replace text with a stub');
     define('LANG_AIM_SPAM_ACTION_LOG',           'Only log');

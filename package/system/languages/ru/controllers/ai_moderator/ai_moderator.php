@@ -17,6 +17,7 @@
     define('LANG_AIM_SPAM_ACTION_COMMENT_HINT',  'Действие при обнаружении спама в комментариях');
     define('LANG_AIM_SPAM_ACTION_MODERATE',      'Отправлять на модерацию');
     define('LANG_AIM_SPAM_ACTION_DELETE_CONTENT','Не публиковать (снять с публикации)');
+    define('LANG_AIM_SPAM_ACTION_DELETE_HARD',    'Удалить физически (из базы)');
     define('LANG_AIM_SPAM_ACTION_DELETE_COMMENT','Удалить комментарий');
     define('LANG_AIM_SPAM_ACTION_HIDE',          'Заменить текст на заглушку');
     define('LANG_AIM_SPAM_ACTION_LOG',           'Только логировать');

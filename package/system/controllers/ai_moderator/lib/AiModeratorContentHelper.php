@@ -38,6 +38,15 @@ class AiModeratorContentHelper {
             $item['is_pub']      = 0;
         }
 
+        if ($check['action'] === 'hard_delete') {
+            // В предмодерации записи ещё нет в БД — блокируем сохранение
+            $item['is_approved'] = 0;
+            $item['is_pub']      = 0;
+            if (array_key_exists('is_deleted', $item)) {
+                $item['is_deleted'] = 1;
+            }
+        }
+
         return $item;
     }
 
@@ -107,6 +116,11 @@ class AiModeratorContentHelper {
                 $content->update($table, $item['id'], ['is_approved' => 0, 'is_pub' => 0]);
                 $item['is_approved'] = 0;
                 $item['is_pub']      = 0;
+            }
+
+            if ($check['action'] === 'hard_delete') {
+                $model = cmsCore::getModel('ai_moderator');
+                $model->hardDeleteContent($content, $item['ctype_name'], (int)$item['id']);
             }
 
         } catch (\Throwable $e) {}

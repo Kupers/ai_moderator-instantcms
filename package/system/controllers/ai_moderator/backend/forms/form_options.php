@@ -27,10 +27,11 @@ class formAiModeratorOptions extends cmsForm {
         ];
 
         $content_actions = [
-            'default'  => LANG_AIM_CAT_ACTION_DEFAULT,
-            'moderate' => LANG_AIM_SPAM_ACTION_MODERATE,
-            'delete'   => LANG_AIM_SPAM_ACTION_DELETE_CONTENT,
-            'log'      => LANG_AIM_SPAM_ACTION_LOG,
+            'default'    => LANG_AIM_CAT_ACTION_DEFAULT,
+            'moderate'   => LANG_AIM_SPAM_ACTION_MODERATE,
+            'delete'     => LANG_AIM_SPAM_ACTION_DELETE_CONTENT,
+            'hard_delete'=> LANG_AIM_SPAM_ACTION_DELETE_HARD,
+            'log'        => LANG_AIM_SPAM_ACTION_LOG,
         ];
 
         foreach ($categories as $cat => $title) {
@@ -118,9 +119,10 @@ class formAiModeratorOptions extends cmsForm {
                         'hint'    => LANG_AIM_SPAM_ACTION_CONTENT_HINT,
                         'default' => 'moderate',
                         'items'   => [
-                            'moderate' => LANG_AIM_SPAM_ACTION_MODERATE,
-                            'delete'   => LANG_AIM_SPAM_ACTION_DELETE_CONTENT,
-                            'log'      => LANG_AIM_SPAM_ACTION_LOG,
+                            'moderate'   => LANG_AIM_SPAM_ACTION_MODERATE,
+                            'delete'     => LANG_AIM_SPAM_ACTION_DELETE_CONTENT,
+                            'hard_delete'=> LANG_AIM_SPAM_ACTION_DELETE_HARD,
+                            'log'        => LANG_AIM_SPAM_ACTION_LOG,
                         ],
                     ]),
 
